@@ -55,7 +55,7 @@ This example demonstrates setting up a WebSocket server that echoes messages bac
 
 ## Documentation
 
-For more detailed documentation, including API reference and advanced usage, please refer to pkg.go.dev/github.com/yourusername/go-rtc-lib.
+For more detailed documentation, including API reference and advanced usage, please refer to pkg.go.dev/github.com/gclluch/go-rtc-lib.
 
 ## Contributing
 
