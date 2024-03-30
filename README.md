@@ -17,7 +17,7 @@
 To use `go-rtc-lib` in your Go project, run:
 
 ```bash
-go get github.com/yourusername/go-rtc-lib
+go get github.com/gclluch/go-rtc-lib
 ```
 
 ### Basic Usage
@@ -28,7 +28,7 @@ Here's a simple example of how to create a WebSocket server using go-rtc-lib:
 package main
 
 import (
-    "github.com/yourusername/go-rtc-lib/pkg/rtc"
+    "github.com/gclluch/go-rtc-lib/pkg/rtc"
     "log"
     "net/http"
 )
