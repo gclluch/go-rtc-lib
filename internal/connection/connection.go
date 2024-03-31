@@ -2,7 +2,6 @@ package connection
 
 import (
 	"go-rtc-lib/internal/handler"
-
 	"log"
 	"net/http"
 	"sync"
@@ -11,95 +10,128 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var globalRegistry = NewRegistry()
+
+func init() {
+	go globalRegistry.Run()
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Adjust this for production to validate the origin.
+		// Implement origin check for production.
+		return true
 	},
 }
 
 type Connection struct {
 	WS             *websocket.Conn
 	Send           chan []byte
-	wg             sync.WaitGroup // Use a WaitGroup to manage goroutine lifecycle.
-	closeOnce      sync.Once      // Ensure connection is closed exactly once
+	wg             sync.WaitGroup
+	closeOnce      sync.Once
 	messageHandler handler.Handler
+	closeSignal    chan struct{}
 }
 
-// RegisterHandler allows users to set a custom message handler for the connection.
-func (c *Connection) RegisterHandler(handler handler.Handler) {
-	c.messageHandler = handler
+func NewConnection(ws *websocket.Conn, handler handler.Handler) *Connection {
+	return &Connection{
+		WS:             ws,
+		Send:           make(chan []byte, 256),
+		messageHandler: handler,
+		closeSignal:    make(chan struct{}),
+	}
 }
 
-func (c *Connection) closeConnection() {
+func (c *Connection) CloseConnection() {
 	c.closeOnce.Do(func() {
+		close(c.Send)
 		if err := c.WS.Close(); err != nil {
-			log.Printf("close connection error: %v", err)
+			log.Printf("Error closing WebSocket connection: %v", err)
 		}
+		close(c.closeSignal)
 	})
 }
 
-func (c *Connection) readPump() {
-	defer func() {
-		c.closeConnection()
-		c.wg.Done()
-	}()
-	c.WS.SetReadLimit(512)
+// Adjust the pong handler and ping sender to maintain the connection
+func (c *Connection) setupPongHandler() {
 	c.WS.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.WS.SetPongHandler(func(string) error {
 		c.WS.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
+}
+
+func (c *Connection) readPump() {
+	defer func() {
+		c.wg.Done()
+		c.CloseConnection() // Ensure connection is closed at the end of readPump.
+	}()
+	c.setupPongHandler()
+
 	for {
 		_, message, err := c.WS.ReadMessage()
 		if err != nil {
-			log.Printf("read error: %v", err)
-			break
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("error: %v", err)
+			} else {
+				log.Printf("read error: %v", err)
+			}
+			break // Exit the loop on read error.
 		}
 
-		// Check if a messageHandler is set, then use it
 		if c.messageHandler != nil {
-			response, err := c.messageHandler.HandleMessage(message)
-			if err != nil {
-				log.Printf("handler error: %v", err)
-				// Decide how to handle handler errors; maybe close the connection
+			// Process the message using the registered handler.
+			response, handlerErr := c.messageHandler.HandleMessage(message)
+			if handlerErr != nil {
+				log.Printf("Handler error: %v", handlerErr)
+				// Optionally, close the connection on handler error.
 				break
 			}
 			if response != nil {
-				// Optionally, send a response back to the client
-				c.Send <- response
+				// Send response if not blocked.
+				select {
+				case c.Send <- response:
+				default:
+					// Log or handle blocked send channel.
+					log.Println("Send channel blocked. Unable to send handler response.")
+				}
 			}
 		} else {
-			// Fallback or default behavior if no handler is registered
-			log.Printf("recv: %s", message)
-			c.Send <- message // Echo back for testing purposes
+			// Fallback or default behavior if no handler is registered.
+			log.Printf("No handler registered. Message received: %s", string(message))
+			// Echo the message back or handle as needed.
 		}
 	}
 }
 
 func (c *Connection) writePump() {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(30 * time.Second) // Adjust the interval as needed.
 	defer func() {
 		ticker.Stop()
-		c.closeConnection()
+		c.CloseConnection() // Ensure connection is closed at the end of writePump.
 		c.wg.Done()
 	}()
+
 	for {
 		select {
 		case message, ok := <-c.Send:
 			if !ok {
+				// The channel has been closed.
 				c.WS.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+			c.WS.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.WS.WriteMessage(websocket.TextMessage, message); err != nil {
-				log.Printf("write error: %v", err)
+				log.Printf("Write error: %v", err)
 				return
 			}
+
 		case <-ticker.C:
 			c.WS.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			// Send a ping message.
 			if err := c.WS.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("ping error: %v", err)
+				log.Printf("Ping error: %v", err)
 				return
 			}
 		}
@@ -113,28 +145,29 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := &Connection{WS: conn, Send: make(chan []byte, 256)}
-	client.wg.Add(2) // Add two goroutines to the WaitGroup.
+	globalRegistry.register <- client
+	defer func() { globalRegistry.unregister <- client }()
+
+	client.wg.Add(2)
 	go client.writePump()
 	go client.readPump()
-	client.wg.Wait()   // Wait for both pumps to finish.
-	close(client.Send) // Safely close the send channel after pumps finish.
+	client.wg.Wait()
 }
 
-// Create a function to generate a new WebSocket handler with a custom message handler.
-func NewHandler(customHandler handler.Handler) http.HandlerFunc {
+func RegisterHandler(customHandler handler.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println("Upgrade failed:", err)
 			return
 		}
-		client := &Connection{WS: conn, Send: make(chan []byte, 256)}
-		client.RegisterHandler(customHandler) // Register the custom handler
+		client := NewConnection(conn, customHandler) // Initialize the connection with the custom handler.
+		globalRegistry.register <- client
+		defer func() { globalRegistry.unregister <- client }()
 
 		client.wg.Add(2)
 		go client.writePump()
 		go client.readPump()
 		client.wg.Wait()
-		close(client.Send)
 	}
 }
