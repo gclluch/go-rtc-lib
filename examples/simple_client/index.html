@@ -4,10 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebSocket Client</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f7f7f7;
+            font-family: Arial, sans-serif;
+        }
+        #sendMessageButton {
+            margin-left: 8px;
+        }
+        #messageInput {
+            padding: 10px;
+            font-size: 16px;
+            width: 200px; 
+        }
+        #sendMessageButton {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-    <input id="messageInput" type="text" placeholder="Type your message here...">
-    <button id="sendMessageButton">Send Message</button>
+    <div class="container">
+        <input id="messageInput" type="text" placeholder="Type your message here...">
+        <button id="sendMessageButton">Send Message</button>
+    </div>
     <script>
         // Establish a WebSocket connection
         var ws = new WebSocket("ws://localhost:8080/ws");

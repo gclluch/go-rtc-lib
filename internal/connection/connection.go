@@ -18,29 +18,43 @@ var upgrader = websocket.Upgrader{
 }
 
 type Connection struct {
-	WS   *websocket.Conn
-	Send chan []byte
-	wg   sync.WaitGroup // Use a WaitGroup to manage goroutine lifecycle.
+	WS        *websocket.Conn
+	Send      chan []byte
+	wg        sync.WaitGroup // Use a WaitGroup to manage goroutine lifecycle.
+	closeOnce sync.Once      // Ensure connection is closed exactly once
+}
+
+func (c *Connection) closeConnection() {
+	c.closeOnce.Do(func() {
+		if err := c.WS.Close(); err != nil {
+			log.Printf("close connection error: %v", err)
+		}
+	})
 }
 
 func (c *Connection) readPump() {
 	defer func() {
-		c.WS.Close()
-		c.wg.Done() // Signal that readPump is done.
+		c.closeConnection()
+		c.wg.Done()
 	}()
 	c.WS.SetReadLimit(512)
 	c.WS.SetReadDeadline(time.Now().Add(60 * time.Second))
-	c.WS.SetPongHandler(func(string) error { c.WS.SetReadDeadline(time.Now().Add(60 * time.Second)); return nil })
+	c.WS.SetPongHandler(func(string) error {
+		c.WS.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
 	for {
 		_, message, err := c.WS.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				log.Printf("unexpected close error: %v", err)
+			} else {
+				log.Printf("read error: %v", err)
 			}
 			break
 		}
 		log.Printf("recv: %s", message)
-		// Echo the message back for testing purposes.
+		// Echo the message back for testing purposes
 		c.Send <- message
 	}
 }
@@ -49,8 +63,8 @@ func (c *Connection) writePump() {
 	ticker := time.NewTicker(60 * time.Second)
 	defer func() {
 		ticker.Stop()
-		c.WS.Close()
-		c.wg.Done() // Signal that writePump is done.
+		c.closeConnection()
+		c.wg.Done()
 	}()
 	for {
 		select {
@@ -59,7 +73,10 @@ func (c *Connection) writePump() {
 				c.WS.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			c.WS.WriteMessage(websocket.TextMessage, message)
+			if err := c.WS.WriteMessage(websocket.TextMessage, message); err != nil {
+				log.Printf("write error: %v", err)
+				return
+			}
 		case <-ticker.C:
 			c.WS.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.WS.WriteMessage(websocket.PingMessage, nil); err != nil {
