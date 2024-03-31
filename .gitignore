@@ -19,3 +19,84 @@
 
 # Go workspace file
 go.work
+
+
+
+# General
+*.log
+*.out
+*.pid
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go specific
+bin/
+pkg/
+vendor/
+
+# Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*.test
+*.test.*
+
+# Go build directories
+dist/
+
+# Dependency directories (comment out if you prefer to keep your vendor directory)
+/vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment files
+.env
+.env.*
+
+# Node.js dependencies for any frontend tooling
+node_modules/
+
+# Compiled static assets
+/static/
+
+# Private keys and certificates
+*.pem
+*.key
+*.cert
+
+# Editor-specific files
+*.sublime-workspace
+*.sublime-project
+
+# Generated files by JetBrains IDEs
+.idea/
+
+# Windows thumbnail cache
+Thumbs.db
+
+# MacOS files
+.DS_Store
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Compiled Object files, Static and Dynamic libs (Shared Objects)
+*.o
+*.a
+*.so
+
+# Folders to ignore
+bin/
+obj/

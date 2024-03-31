@@ -59,8 +59,8 @@ For more detailed documentation, including API reference and advanced usage, ple
 
 ## Contributing
 
-We welcome contributions from the community! If you'd like to contribute to go-rtc-lib, please see our contributing guidelines for more information.
+We welcome contributions from the community! If you'd like to contribute to `go-rtc-lib`, please see our contributing guidelines for more information.
 
 ## License
 
-go-rtc-lib is released under the MIT License. See the LICENSE file for more details.
+`go-rtc-lib` is released under the MIT License. See the LICENSE file for more details.
