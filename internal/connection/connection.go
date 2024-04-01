@@ -16,6 +16,10 @@ func init() {
 	go globalRegistry.Run()
 }
 
+func GetGlobalRegistry() *Registry {
+	return globalRegistry
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
