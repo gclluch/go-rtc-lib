@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -30,6 +31,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type Connection struct {
+	UID            string // Unique identifier for the client
 	WS             *websocket.Conn
 	Send           chan []byte
 	wg             sync.WaitGroup
@@ -38,8 +40,9 @@ type Connection struct {
 	closeSignal    chan struct{}
 }
 
-func NewConnection(ws *websocket.Conn, handler handler.Handler) *Connection {
+func NewConnection(ws *websocket.Conn, handler handler.Handler, uid string) *Connection {
 	return &Connection{
+		UID:            uid,
 		WS:             ws,
 		Send:           make(chan []byte, 256),
 		messageHandler: handler,
@@ -165,7 +168,9 @@ func RegisterHandler(customHandler handler.Handler) http.HandlerFunc {
 			log.Println("Upgrade failed:", err)
 			return
 		}
-		client := NewConnection(conn, customHandler) // Initialize the connection with the custom handler.
+
+		uid := uuid.New().String()
+		client := NewConnection(conn, customHandler, uid) // Initialize the connection with the custom handler.
 		globalRegistry.register <- client
 		defer func() { globalRegistry.unregister <- client }()
 
