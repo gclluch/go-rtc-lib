@@ -25,7 +25,7 @@
 
         ws.onmessage = function(event) {
             var li = document.createElement("li");
-            li.textContent = "Received: " + event.data;
+            li.textContent = event.data;
             messages.appendChild(li);
         };
 

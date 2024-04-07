@@ -1,14 +1,19 @@
 package connection
 
 import (
-	"go-rtc-lib/internal/handler"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/gorilla/websocket"
 )
+
+type MessageHandler interface {
+	HandleMessage(conn *Connection, msg []byte) ([]byte, error)
+}
 
 var globalRegistry = NewRegistry()
 
@@ -30,30 +35,36 @@ var upgrader = websocket.Upgrader{
 }
 
 type Connection struct {
+	ID             string // Unique identifier for the connection
 	WS             *websocket.Conn
 	Send           chan []byte
 	wg             sync.WaitGroup
 	closeOnce      sync.Once
-	messageHandler handler.Handler
+	messageHandler MessageHandler
 	closeSignal    chan struct{}
+	groups         map[string]bool // Tracks which groups this connection is part of.
 }
 
-func NewConnection(ws *websocket.Conn, handler handler.Handler) *Connection {
+func NewConnection(ws *websocket.Conn, handler MessageHandler) *Connection {
 	return &Connection{
+		ID:             uuid.NewString(), // Assign a unique ID to the connection
 		WS:             ws,
 		Send:           make(chan []byte, 256),
 		messageHandler: handler,
 		closeSignal:    make(chan struct{}),
+		groups:         make(map[string]bool),
 	}
 }
 
 func (c *Connection) CloseConnection() {
 	c.closeOnce.Do(func() {
 		close(c.Send)
-		if err := c.WS.Close(); err != nil {
-			log.Printf("Error closing WebSocket connection: %v", err)
-		}
+		c.WS.Close() // Error handling omitted for brevity.
 		close(c.closeSignal)
+		// Remove the connection from all groups it was part of.
+		for groupID := range c.groups {
+			globalRegistry.RemoveFromGroup(groupID, c)
+		}
 	})
 }
 
@@ -86,7 +97,7 @@ func (c *Connection) readPump() {
 
 		if c.messageHandler != nil {
 			// Process the message using the registered handler.
-			response, handlerErr := c.messageHandler.HandleMessage(message)
+			response, handlerErr := c.messageHandler.HandleMessage(c, message)
 			if handlerErr != nil {
 				log.Printf("Handler error: %v", handlerErr)
 				// Optionally, close the connection on handler error.
@@ -148,9 +159,17 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Connection{WS: conn, Send: make(chan []byte, 256)}
+	client := NewConnection(conn, nil) // Assign a default handler if needed.
+	// Register the connection with the global registry.
 	globalRegistry.register <- client
 	defer func() { globalRegistry.unregister <- client }()
+
+	// If there are query parameters to specify groups, join those groups.
+	groups := r.URL.Query()["group"]
+	for _, groupID := range groups {
+		globalRegistry.AddToGroup(groupID, client)
+		defer globalRegistry.RemoveFromGroup(groupID, client) // Ensure we leave the group on disconnect.
+	}
 
 	client.wg.Add(2)
 	go client.writePump()
@@ -158,7 +177,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	client.wg.Wait()
 }
 
-func RegisterHandler(customHandler handler.Handler) http.HandlerFunc {
+func RegisterHandler(customHandler MessageHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {

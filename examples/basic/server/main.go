@@ -10,11 +10,10 @@ import (
 // It needs to implement the handler.Handler interface.
 type CustomHandler struct{}
 
-// HandleMessage processes incoming WebSocket messages and optionally returns a response.
-func (h *CustomHandler) HandleMessage(message []byte) ([]byte, error) {
+// HandleMessage now includes a *connection.Connection parameter.
+func (h *CustomHandler) HandleMessage(conn *connection.Connection, message []byte) ([]byte, error) {
 	log.Printf("Received message: %s", string(message))
 	// For this example, we just echo the message back.
-	// In real scenarios, you'd implement your own custom processing logic here.
 	return message, nil
 }
 
