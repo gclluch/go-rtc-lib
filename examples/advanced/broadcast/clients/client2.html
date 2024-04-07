@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Broadcast Client</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #messages { list-style-type: none; margin: 0; padding: 0; }
+        li { padding: 8px; background-color: #f3f3f3; border: 1px solid #ddd; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <input id="messageInput" type="text" placeholder="Type your message here...">
+    <button onclick="sendMessage()">Send Message</button>
+    <ul id="messages"></ul>
+
+    <script>
+        var ws = new WebSocket("ws://localhost:8080/ws");
+        var messages = document.getElementById("messages");
+
+        ws.onopen = function(event) {
+            console.log("Connected to the WebSocket server.");
+        };
+
+        ws.onmessage = function(event) {
+            var li = document.createElement("li");
+            li.textContent = event.data;
+            messages.appendChild(li);
+        };
+
+        ws.onclose = function(event) {
+            console.log("Disconnected from the WebSocket server.");
+        };
+
+        ws.onerror = function(error) {
+            console.log("WebSocket error: " + error);
+        };
+
+        function sendMessage() {
+            var input = document.getElementById("messageInput");
+            var message = input.value;
+            ws.send(message);
+            input.value = ""; // Clear the input
+        }
+    </script>
+</body>
+</html>

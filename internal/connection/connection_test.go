@@ -1,42 +1,73 @@
-package connection
+package connection_test
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
+
+	"go-rtc-lib/internal/connection"
 
 	"github.com/gorilla/websocket"
 )
 
-func TestWebSocketConnectionUpgrade(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(Handler)) // Setup HTTP server with Handler
+// MockHandler implements the handler.Handler interface for testing.
+type MockHandler struct{}
+
+func (m *MockHandler) HandleMessage(msg []byte) ([]byte, error) {
+	// Echo the message back to the client
+	return msg, nil
+}
+
+// dialWebSocket helps in establishing a WebSocket connection for testing.
+func dialWebSocket(serverURL string) (*websocket.Conn, *http.Response, error) {
+	wsURL := "ws" + serverURL[len("http"):]
+	return websocket.DefaultDialer.Dial(wsURL, nil)
+}
+
+// TestConnectionUpgrade verifies that an HTTP request can be upgraded to a WebSocket connection.
+func TestConnectionUpgrade(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(connection.Handler))
 	defer server.Close()
 
-	url := "ws" + server.URL[len("http"):]
-
-	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	ws, resp, err := dialWebSocket(server.URL)
 	if err != nil {
-		t.Fatalf("Could not open WebSocket connection: %v", err)
+		t.Fatalf("Failed to establish WebSocket connection: %v", err)
+	}
+	ws.Close()
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Errorf("Expected status code %d, got %d", http.StatusSwitchingProtocols, resp.StatusCode)
+	}
+}
+
+// TestEchoMessage verifies the echo functionality by sending a message and expecting the same message in return.
+func TestEchoMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		customHandler := &MockHandler{}
+		connection.RegisterHandler(customHandler)(w, r)
+	}))
+	defer server.Close()
+
+	ws, _, err := dialWebSocket(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to establish WebSocket connection: %v", err)
 	}
 	defer ws.Close()
 
-	testMessage := []byte("hello")
-	if err := ws.WriteMessage(websocket.TextMessage, testMessage); err != nil {
-		t.Fatalf("Could not send message over WebSocket connection: %v", err)
+	testMsg := []byte("hello world")
+	if err := ws.WriteMessage(websocket.TextMessage, testMsg); err != nil {
+		t.Fatal("WriteMessage failed:", err)
 	}
-
-	// Setting a read deadline to ensure the test does not hang
-	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
 
 	_, message, err := ws.ReadMessage()
 	if err != nil {
-		t.Fatalf("Could not read message from WebSocket connection: %v", err)
+		t.Fatal("ReadMessage failed:", err)
 	}
 
-	if string(message) != string(testMessage) {
-		t.Errorf("Expected message %s, got %s", testMessage, message)
+	if !bytes.Equal(message, testMsg) {
+		t.Errorf("Expected message %s, got %s", testMsg, message)
 	}
-	// Additional logic here to ensure the server has time to process and respond
-	time.Sleep(time.Second) // Example of giving extra time
 }
+
+// Add more tests here, such as TestBroadcast functionality, ensuring messages are received by all connected clients.

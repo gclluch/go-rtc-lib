@@ -37,33 +37,38 @@
     <script>
         // Establish a WebSocket connection
         var ws = new WebSocket("ws://localhost:8080/ws");
-
-        // Function to handle sending a message
+    
         function sendMessage() {
             var message = document.getElementById('messageInput').value;
             ws.send(message);
             console.log("Sent message:", message);
         }
-
-        // Add an event listener to the button for sending messages
+    
         document.getElementById('sendMessageButton').addEventListener('click', sendMessage);
-
+    
         ws.onopen = function() {
             console.log("Connected to the server.");
-            ws.send("Hello, server!"); // Send initial message
+            // setInterval(() => {
+            //     if (ws.readyState === WebSocket.OPEN) {
+            //         console.log("Sending heartbeat to keep the connection alive.");
+            //         ws.send(JSON.stringify({ type: "heartbeat" }));
+            //     }
+            // }, 30000); // Adjust the interval as needed.
         };
-
+            
         ws.onmessage = function(evt) {
-            console.log("Received message: " + evt.data);
+            if (evt.data !== '{"type":"heartbeat"}') {
+                console.log("Received message: " + evt.data);
+            }
         };
-
         ws.onclose = function() {
-            console.log("Disconnected from the server.");
+            console.log(`Disconnected from the server with close code ${event.code} and reason: ${event.reason}`);
         };
-
+    
         ws.onerror = function(err) {
             console.error("WebSocket error:", err);
         };
     </script>
+    
 </body>
 </html>

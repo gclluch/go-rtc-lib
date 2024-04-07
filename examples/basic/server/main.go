@@ -10,11 +10,10 @@ import (
 // It needs to implement the handler.Handler interface.
 type CustomHandler struct{}
 
-// HandleMessage processes incoming WebSocket messages and optionally returns a response.
-func (h *CustomHandler) HandleMessage(message []byte) ([]byte, error) {
+// HandleMessage now includes a *connection.Connection parameter.
+func (h *CustomHandler) HandleMessage(conn *connection.Connection, message []byte) ([]byte, error) {
 	log.Printf("Received message: %s", string(message))
-	// For this example, let's just echo the message back.
-	// In real scenarios, you'd likely do more complex processing here.
+	// For this example, we just echo the message back.
 	return message, nil
 }
 
@@ -22,7 +21,7 @@ func main() {
 	customHandler := &CustomHandler{} // Assume CustomHandler is defined elsewhere
 
 	// Use the new factory function to create a handler with the custom logic
-	http.HandleFunc("/ws", connection.NewHandler(customHandler))
+	http.HandleFunc("/ws", connection.RegisterHandler(customHandler))
 
 	log.Println("WebSocket server starting on :8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
