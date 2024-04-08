@@ -1,8 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"go-rtc-lib/pkg/connection"
+	"go-rtc-lib/pkg/message" // Import the message package.
+
 	"log"
 	"net/http"
 )
@@ -17,30 +18,22 @@ type StructuredMessage struct {
 }
 
 // HandleMessage broadcasts the received message to all connected clients.
-func (h *BroadcastHandler) HandleMessage(conn *connection.Connection, message []byte) ([]byte, error) {
+func (h *BroadcastHandler) HandleMessage(conn *connection.Connection, msg []byte) ([]byte, error) {
 
-	// Construct the message.
-	msg := StructuredMessage{
-		ID:      conn.ID,
-		Message: string(message),
+	// Assume msg is a JSON string; construct a structured message including the sender ID.
+	structuredMsg := map[string]string{
+		"id":      conn.ID,
+		"message": string(msg),
 	}
 
-	// Serialize the structured message to JSON.
-	jsonData, err := json.Marshal(msg)
-	if err != nil {
-		log.Printf("Error serializing message: %v", err)
-		return nil, err // Handle the error appropriately.
-	}
-
-	log.Printf("Broadcasting structured message: %s", jsonData)
+	// Create a new JSONMessage instance with the structured message.
+	jsonMsg := message.NewJSONMessage(structuredMsg)
+	log.Printf("Broadcasting structured message: %s", jsonMsg)
 
 	// Use the global registry to broadcast the message.
-	// Ensure you're using the modified Broadcast method that accepts a *Message struct.
 	globalRegistry := connection.GetGlobalRegistry()
-	globalRegistry.Broadcast(&connection.Message{
-		Data:      jsonData,
-		GroupName: "", // Leave empty to broadcast to all connections; specify a group name to target a group.
-	})
+	groupName := "" // Indicates broadcasting to all groups or use BroadcastToAll
+	globalRegistry.Broadcast(jsonMsg, groupName)
 
 	// No direct response to the sender in this broadcast scenario.
 	return nil, nil
