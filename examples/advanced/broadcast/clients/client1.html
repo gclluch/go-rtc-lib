@@ -24,8 +24,12 @@
         };
 
         ws.onmessage = function(event) {
+            var msg = JSON.parse(event.data);
+            
+            var displayText = msg.id + ": " + msg.message;
+
             var li = document.createElement("li");
-            li.textContent = event.data;
+            li.textContent = displayText;
             messages.appendChild(li);
         };
 
