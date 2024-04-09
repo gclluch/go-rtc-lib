@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Group Chat</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #messages p { margin: 5px 0; padding: 2px; }
+        #messages { border: 1px solid #ddd; padding: 10px; height: 200px; overflow-y: scroll; }
+    </style>
+</head>
+<body>
+    <input id="group" type="text" placeholder="Group name">
+    <button id="joinLeaveBtn">Join Group</button>
+    <br><br>
+    <input id="messageInput" type="text" placeholder="Type a message" disabled>
+    <button id="sendBtn" disabled>Send</button>
+    <div id="messages"></div>
+
+    <script>
+        var ws = new WebSocket('ws://localhost:8080/ws');
+        var joinedGroup = false;
+    
+        document.getElementById('joinLeaveBtn').onclick = function() {
+            var group = document.getElementById('group').value.trim();
+            if (!group) {
+                alert("Please enter a group name.");
+                return;
+            }
+    
+            if (joinedGroup) {
+                ws.send(JSON.stringify({ action: 'leave', group: group }));
+                this.textContent = 'Join Group';
+                document.getElementById('messageInput').disabled = true;
+                document.getElementById('sendBtn').disabled = true;
+                joinedGroup = false;
+                clearMessages();
+            } else {
+                ws.send(JSON.stringify({ action: 'join', group: group }));
+                this.textContent = 'Leave Group';
+                document.getElementById('messageInput').disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+                joinedGroup = true;
+            }
+        };
+    
+        document.getElementById('sendBtn').onclick = function() {
+            var message = document.getElementById('messageInput').value.trim();
+            var group = document.getElementById('group').value.trim();
+            if (message) {
+                ws.send(JSON.stringify({ action: 'message', group: group, message: message }));
+                document.getElementById('messageInput').value = '';
+            }
+        };
+    
+        ws.onmessage = function(event) {
+            var message = JSON.parse(event.data);
+            if (message.from && message.message) {
+                displayMessage(message.from, message.message);
+            }
+        };
+    
+        ws.onclose = function() {
+            console.log("Disconnected from the WebSocket server.");
+        };
+    
+        // Utility function to display messages
+        function displayMessage(sender, message) {
+            var messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML += '<p><b>' + sender + ':</b> ' + message + '</p>';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Auto-scroll to the latest message
+        }
+    
+        // Utility function to clear messages when leaving a group
+        function clearMessages() {
+            var messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = ''; // Clear the messages
+        }
+    </script>
+    
+</body>
+</html>
