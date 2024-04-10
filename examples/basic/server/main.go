@@ -1,7 +1,7 @@
 package main
 
 import (
-	"go-rtc-lib/pkg/connection"
+	"go-rtc-lib/connection"
 	"log"
 	"net/http"
 )

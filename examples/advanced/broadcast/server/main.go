@@ -1,8 +1,8 @@
 package main
 
 import (
-	"go-rtc-lib/pkg/connection"
-	"go-rtc-lib/pkg/message" // Import the message package.
+	"go-rtc-lib/connection"
+	"go-rtc-lib/message" // Import the message package.
 
 	"log"
 	"net/http"
