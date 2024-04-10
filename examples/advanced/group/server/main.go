@@ -12,7 +12,7 @@ import (
 type GroupMessageHandler struct{}
 
 func (h *GroupMessageHandler) HandleMessage(conn *connection.Connection, msg []byte) ([]byte, error) {
-	// Parse the incoming JSON message.
+	// Parse the incoming JSON from client.
 	var parsedMsg struct {
 		Action  string `json:"action"`
 		Group   string `json:"group,omitempty"`
@@ -43,8 +43,8 @@ func (h *GroupMessageHandler) HandleMessage(conn *connection.Connection, msg []b
 	return nil, nil
 }
 
+// Broadcasts a structured message to all connections in the specified group.
 func broadcastMessage(conn *connection.Connection, groupName, messageContent string) {
-	// Assuming the NewJSONMessage function takes a map or struct that it will internally marshal to JSON.
 	msgData := map[string]string{
 		"from":    conn.ID,        // Sender ID
 		"message": messageContent, // The message text
@@ -52,14 +52,13 @@ func broadcastMessage(conn *connection.Connection, groupName, messageContent str
 
 	// Create a new JSONMessage instance with the content.
 	jsonMsg := message.NewJSONMessage(msgData)
-
-	// Log the structured message being broadcasted (for debugging).
 	log.Printf("Broadcasting structured message: %+v", jsonMsg)
 
 	// Broadcast the JSON message to the specified group.
 	globalRegistry := connection.GetGlobalRegistry()
 	globalRegistry.Broadcast(jsonMsg, groupName)
 }
+
 func main() {
 	handler := &GroupMessageHandler{}
 	http.HandleFunc("/ws", connection.RegisterHandler(handler))
