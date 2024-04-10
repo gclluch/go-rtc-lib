@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"go-rtc-lib/pkg/connection"
-	"go-rtc-lib/pkg/message"
+	"go-rtc-lib/connection"
+	"go-rtc-lib/message"
 	"log"
 	"net/http"
 )

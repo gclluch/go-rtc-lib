@@ -35,7 +35,7 @@ package main
 import (
 	"log"
 	"net/http"
-	"github.com/gclluch/go-rtc-lib/pkg/connection"
+	"github.com/gclluch/go-rtc-lib/connection"
 )
 
 // Handler defines a type that will implement the MessageHandler interface.
