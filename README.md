@@ -6,11 +6,16 @@
 
 - **WebSockets Management:** Simplifies establishing and maintaining WebSocket connections.
 - **Connection Pooling:** Efficiently manages and pools active connections.
+- **Group Support:** Facilitates creating and managing groups (or rooms) for targeted message broadcasting, allowing for more organized communication channels.
 - **Broadcasting:** Supports broadcasting messages to all connected clients.
-- **Data Handling:** Seamlessly handles different types of data (text, binary, etc.).
-- **Middleware Support:** Easily extend functionality with custom middleware.
+- **Data Handling:** Seamlessly handles different types of data (JSON, binary, etc.).
+- **Custom Message Handlers:** Supports custom message handling logic to accommodate specific application requirements.
+
 
 ## Getting Started
+
+### Prerequisties 
+- Go 1.13 or later
 
 ### Installation
 
@@ -28,34 +33,96 @@ Here's a simple example of how to create a WebSocket server using go-rtc-lib:
 package main
 
 import (
-    "github.com/gclluch/go-rtc-lib/pkg/rtc"
-    "log"
-    "net/http"
+	"log"
+	"net/http"
+	"github.com/gclluch /go-rtc-lib/pkg/connection"
 )
 
+// Handler defines a type that will implement the MessageHandler interface.
+type Handler struct{}
+
+// HandleMessage is the method where the custom logic for handling messages is defined.
+// This method makes Handler adhere to the MessageHandler interface.
+func (h *Handler) HandleMessage(conn *connection.Connection, message []byte) ([]byte, error) {
+    log.Printf("Received message: %s", string(message))
+    // Echo the message back
+    return message, nil
+}
+
 func main() {
-    wsServer := rtc.NewServer()
+    // Create an instance of Handler
+    handler := &Handler{}
 
-    wsServer.OnConnect(func(c *rtc.Client) {
-        log.Printf("Client connected: %s", c.ID)
-    })
+    // Use RegisterHandler to create a handler with custom logic
+	http.HandleFunc("/ws", connection.RegisterHandler(customHandler))
 
-    wsServer.OnMessage(func(c *rtc.Client, msgType int, msg []byte) {
-        // Echo the message back to the client
-        c.Send(msgType, msg)
-    })
-
-    http.HandleFunc("/ws", wsServer.HandleWebSocket)
-    log.Println("WebSocket server starting on port :8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("WebSocket server starting on :8080...")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatal("Server failed to start:", err)
+	}
 }
 ```
 
-This example demonstrates setting up a WebSocket server that echoes messages back to clients.
+## Advanced Usage
 
-## Documentation
+Detailed examples found in `examples/advanced/`
 
-For more detailed documentation, including API reference and advanced usage, please refer to pkg.go.dev/github.com/gclluch/go-rtc-lib.
+# Broadcasting to All connections vs Groups
+
+```go
+
+// Broadcast the JSON message to the specified group.
+globalRegistry := connection.GetGlobalRegistry()
+
+// Broadcast to all connections
+globalRegistry.BroadcastToAll(msg)
+
+// Broadcast to group
+globalRegistry.Broadcast(jsonMsg, groupName) // empty groupName broadcasts to al
+```
+
+# Custom Message Types
+
+To create a custom message type, implement the `IMessage` interface. For example, a `ChatMessage` might look like this:
+
+```go
+package message
+
+import (
+	"encoding/json"
+)
+
+// ChatMessage represents a chat message.
+type ChatMessage struct {
+	Sender  string `json:"sender"`
+	Content string `json:"content"`
+}
+
+// Serialize converts the ChatMessage into a JSON byte slice.
+func (cm *ChatMessage) Serialize() ([]byte, error) {
+	return json.Marshal(cm)
+}
+
+// Deserialize populates the ChatMessage fields from a byte slice.
+func (cm *ChatMessage) Deserialize(data []byte) error {
+	return json.Unmarshal(data, cm)
+}
+
+// Type returns the type of the ChatMessage.
+func (cm *ChatMessage) Type() string {
+	return "chat"
+}
+```
+
+The `Broadcast` method should automatically serialize the message.
+
+```go
+chatMsg := &message.ChatMessage{
+	Sender:  "server",
+	Content: "Welcome to the chat room!",
+}
+globalRegistry.Broadcast(chatMsg, "") // Broadcast to all clients
+```
 
 ## Contributing
 

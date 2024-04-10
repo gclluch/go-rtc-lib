@@ -7,10 +7,10 @@ import (
 )
 
 // Handler defines a custom handler for WebSocket messages.
-// It needs to implement the handler.Handler interface.
+// It needs to implement the MessageHandler interface.
 type Handler struct{}
 
-// HandleMessage now includes a *connection.Connection parameter.
+// HandleMessage is the method where the custom logic for handling messages is defined.
 func (h *Handler) HandleMessage(conn *connection.Connection, message []byte) ([]byte, error) {
 	log.Printf("Received message: %s", string(message))
 	// For this example, we just echo the message back.
@@ -18,9 +18,9 @@ func (h *Handler) HandleMessage(conn *connection.Connection, message []byte) ([]
 }
 
 func main() {
-	handler := &Handler{} // Assume CustomHandler is defined elsewhere
+	handler := &Handler{}
 
-	// Use the new factory function to create a handler with the custom logic
+	// Use the registration function to create a handler with the custom logic
 	http.HandleFunc("/ws", connection.RegisterHandler(handler))
 
 	log.Println("WebSocket server starting on :8080...")
