@@ -14,7 +14,7 @@
 
 ## Getting Started
 
-### Prerequisties 
+### Prerequisites 
 - Go 1.13 or later
 
 ### Installation
@@ -35,7 +35,7 @@ package main
 import (
 	"log"
 	"net/http"
-	"github.com/gclluch /go-rtc-lib/pkg/connection"
+	"github.com/gclluch/go-rtc-lib/pkg/connection"
 )
 
 // Handler defines a type that will implement the MessageHandler interface.
@@ -50,11 +50,11 @@ func (h *Handler) HandleMessage(conn *connection.Connection, message []byte) ([]
 }
 
 func main() {
-    // Create an instance of Handler
+    // Create an instance of Handler.
     handler := &Handler{}
 
     // Use RegisterHandler to create a handler with custom logic
-	http.HandleFunc("/ws", connection.RegisterHandler(customHandler))
+	http.HandleFunc("/ws", connection.RegisterHandler(handler))
 
 	log.Println("WebSocket server starting on :8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
@@ -74,16 +74,16 @@ Detailed examples found in `examples/advanced/`
 // Broadcast the JSON message to the specified group.
 globalRegistry := connection.GetGlobalRegistry()
 
-// Broadcast to all connections
+// Broadcast to all connections.
 globalRegistry.BroadcastToAll(msg)
 
-// Broadcast to group
-globalRegistry.Broadcast(jsonMsg, groupName) // empty groupName broadcasts to al
+// Broadcast to group. 
+globalRegistry.Broadcast(jsonMsg, groupName)
 ```
 
 # Custom Message Types
 
-To create a custom message type, implement the `IMessage` interface. For example, a `ChatMessage` might look like this:
+You can create custom message types enhance the flexibility and efficiency of data handling, allowing for structured and meaningful communication tailored to specific application needs. To create a custom message type, implement the `IMessage` interface. For example, a `ChatMessage` might look like this:
 
 ```go
 package message
@@ -114,14 +114,14 @@ func (cm *ChatMessage) Type() string {
 }
 ```
 
-The `Broadcast` method should automatically serialize the message.
+The `Broadcast` method will automatically serialize the message if the message type has been properly defined.
 
 ```go
 chatMsg := &message.ChatMessage{
 	Sender:  "server",
 	Content: "Welcome to the chat room!",
 }
-globalRegistry.Broadcast(chatMsg, "") // Broadcast to all clients
+globalRegistry.Broadcast(chatMsg, "") // "" for `groupName` broadcasts to all clients.
 ```
 
 ## Contributing
