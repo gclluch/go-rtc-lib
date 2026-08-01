@@ -7,6 +7,7 @@
 - **WebSockets Management:** Simplifies establishing and maintaining WebSocket connections.
 - **Group Support:** Facilitates creating and managing groups (or rooms) for targeted message broadcasting, allowing for more organized communication channels.
 - **Broadcasting:** Supports broadcasting messages to all connected clients.
+- **Backpressure as a signal:** each connection has a 256-message outbound buffer. Filling it means the peer stopped draining, so the connection is closed and unregistered rather than having its messages silently dropped - a dropped broadcast leaves that client stale with no error anywhere.
 - **Outbound Serialization:** `message.IMessage` implementations for JSON and raw bytes, or write your own. Note this is the *outbound* path only - inbound frames reach your `MessageHandler` as undecoded `[]byte` for you to parse.
 - **Custom Message Handlers:** Supports custom message handling logic to accommodate specific application requirements.
 - **Graceful Shutdown:** A `Registry` is driven by a `context.Context`; canceling it drains and closes every connection.

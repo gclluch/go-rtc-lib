@@ -200,7 +200,18 @@ func (r *Registry) Broadcast(msg message.IMessage, groupName string) {
 		case conn.Send <- serializedMsg:
 			// Message successfully queued to send.
 		default:
-			log.Printf("Failed to send to connection %s. Channel full.", conn.ID)
+			// A backlog this deep means the peer stopped draining, not that it
+			// is briefly slow. Dropping the message used to be the response,
+			// which is only defensible for a chat hub: where broadcasts carry
+			// state rather than chatter, the client is left silently stale with
+			// no error anywhere. Closing is the truthful reading, and the
+			// existing unregister path reaps it from here.
+			//
+			// Closed off the broadcast goroutine because CloseConnection waits
+			// for the write pump's close frame, and the broadcaster - often a
+			// game or event loop - must not pay that latency per dead peer.
+			log.Printf("Connection %s is not draining; closing it.", conn.ID)
+			go conn.CloseConnection()
 		}
 	}
 }

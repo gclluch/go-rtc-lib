@@ -47,12 +47,15 @@ func (c *Connection) readPump() {
 			break
 		}
 		if response != nil {
-			// Send response if not blocked.
 			select {
 			case c.Send <- response:
 			default:
-				// Log or handle blocked send channel.
-				log.Println("Send channel blocked. Unable to send handler response.")
+				// Same policy as Registry.Broadcast: a full buffer is a peer
+				// that stopped draining. Returning runs the deferred
+				// CloseConnection, so the connection is reaped rather than
+				// left believing it got a reply it never will.
+				log.Printf("Connection %s is not draining; closing it.", c.ID)
+				return
 			}
 		}
 	}
