@@ -117,3 +117,28 @@ func TestConcurrentBroadcastDuringDisconnect(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// TestAddToGroupAfterUnregisterDoesNotPanic covers the nil-map panic:
+// unregisterConnection sets conn.groups = nil, and AddToGroup then wrote to it.
+// Writing to a nil map is a fatal runtime throw - recover() cannot catch it in
+// the general case - so an application calling AddToGroup on a peer that had
+// just disconnected took the whole process down.
+func TestAddToGroupAfterUnregisterDoesNotPanic(t *testing.T) {
+	r := NewRegistry()
+	conn := NewConnection(nil, nil)
+
+	r.AddToGroup("room1", conn)
+	r.unregisterConnection(conn)
+
+	// Before the fix this line panicked: "assignment to entry in nil map".
+	r.AddToGroup("room1", conn)
+
+	r.mu.Lock()
+	_, resurrected := r.groups["room1"][conn]
+	r.mu.Unlock()
+
+	if resurrected {
+		t.Fatal("an unregistered connection was added back to a group; " +
+			"nothing will ever unregister it again, so it would leak")
+	}
+}

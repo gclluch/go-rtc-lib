@@ -117,10 +117,21 @@ func (r *Registry) DeleteGroup(name string) {
 	delete(r.groups, name)
 }
 
-// AddToGroup adds a connection to a specific group.
+// AddToGroup adds a connection to a specific group. Adding a connection the
+// registry has already unregistered is a no-op.
 func (r *Registry) AddToGroup(groupName string, conn *Connection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// unregisterConnection nils this map once a connection's pumps have exited.
+	// Writing to a nil map panics, and the panic is unrecoverable - so an
+	// application that calls AddToGroup on a peer that just disconnected would
+	// take the whole process down. Re-adding it would be wrong anyway: nothing
+	// will unregister it a second time, so it would sit in the group forever.
+	if conn.groups == nil {
+		log.Printf("AddToGroup: connection %s is unregistered; not adding to %q", conn.ID, groupName)
+		return
+	}
 
 	group, exists := r.groups[groupName]
 	if !exists {
