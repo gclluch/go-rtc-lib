@@ -106,6 +106,31 @@ func defaultCheckOrigin(r *http.Request) bool {
 	return strings.EqualFold(u.Host, r.Host)
 }
 
+// AllowOrigins returns a CheckOrigin that accepts everything the default does
+// (no Origin header, or same-origin) plus the origins listed. Reach for it when
+// the frontend is served from somewhere other than the API - a Vite dev server
+// on another port, say - rather than reaching for a blanket `return true`:
+//
+//	registry.CheckOrigin = connection.AllowOrigins("http://localhost:5173")
+//
+// Origins are matched whole and case-insensitively, so pass exact scheme+host
+// values ("https://app.example.com"). There is no wildcard on purpose.
+func AllowOrigins(origins ...string) func(r *http.Request) bool {
+	allowed := make(map[string]bool, len(origins))
+	for _, origin := range origins {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			allowed[strings.ToLower(origin)] = true
+		}
+	}
+
+	return func(r *http.Request) bool {
+		if defaultCheckOrigin(r) {
+			return true
+		}
+		return allowed[strings.ToLower(r.Header.Get("Origin"))]
+	}
+}
+
 // RegisterHandler returns an http.HandlerFunc that upgrades incoming
 // requests to WebSocket connections tracked by r, dispatching incoming
 // messages to customHandler.

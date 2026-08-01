@@ -141,3 +141,37 @@ func TestCheckOriginRejectsCrossOrigin(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden, got resp=%v err=%v", resp, err)
 	}
 }
+
+// AllowOrigins is the sanctioned alternative to a blanket `return true` for a
+// frontend served from another port. It has to keep the safe parts of the
+// default - non-browser clients and same-origin - while adding only the exact
+// origins named, so a look-alike host is still rejected.
+func TestAllowOriginsExtendsTheDefaultWithoutWideningIt(t *testing.T) {
+	check := connection.AllowOrigins("http://localhost:5173", " https://App.Example.com ")
+
+	cases := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{"no Origin header (non-browser client)", "", true},
+		{"same origin as the request Host", "http://api.example.com", true},
+		{"listed origin", "http://localhost:5173", true},
+		{"listed origin, differing case", "https://app.example.com", true},
+		{"unlisted origin", "https://evil.example.com", false},
+		{"look-alike of a listed origin", "http://localhost:5174", false},
+		{"listed host over the wrong scheme", "https://localhost:5173", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "http://api.example.com/ws", nil)
+			if tc.origin != "" {
+				r.Header.Set("Origin", tc.origin)
+			}
+			if got := check(r); got != tc.want {
+				t.Errorf("origin %q: allowed=%v, want %v", tc.origin, got, tc.want)
+			}
+		})
+	}
+}
