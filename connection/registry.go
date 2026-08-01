@@ -1,51 +1,84 @@
 package connection
 
 import (
-	"go-rtc-lib/message"
+	"context"
 	"log"
+	"net/http"
 	"sync"
+
+	"github.com/gclluch/go-rtc-lib/message"
 )
 
 // Registry manages active WebSocket connections and supports broadcasting to groups.
 type Registry struct {
 	connections map[*Connection]bool            // Global list of all connections
 	groups      map[string]map[*Connection]bool // Groups of connections
-	broadcast   chan *Message                   // Messages to be broadcasted globally
 	register    chan *Connection
 	unregister  chan *Connection
 	mu          sync.Mutex
+
+	// CheckOrigin decides whether an incoming upgrade request's Origin is
+	// allowed. It defaults to same-origin-only (see defaultCheckOrigin).
+	// Override it to allow specific additional origins.
+	CheckOrigin func(r *http.Request) bool
 }
 
-type Message struct {
-	Data      []byte
-	GroupName string // If empty, broadcast to all connections; if not, broadcast to the group
-}
-
-// NewRegistry creates a new Registry instance.
+// NewRegistry creates a new Registry instance. Each Registry is independent,
+// so a process can run multiple isolated servers (or one per test).
 func NewRegistry() *Registry {
 	return &Registry{
 		connections: make(map[*Connection]bool),
 		groups:      make(map[string]map[*Connection]bool),
-		broadcast:   make(chan *Message),
 		register:    make(chan *Connection),
 		unregister:  make(chan *Connection),
+		CheckOrigin: defaultCheckOrigin,
 	}
 }
 
-// Run starts the registry's main loop, handling connection registration, unregistration, and broadcasting.
-func (r *Registry) Run() {
+// Run processes connection registration and unregistration until ctx is
+// canceled. On cancellation it closes every active connection (draining the
+// server) and returns. Callers start it with `go registry.Run(ctx)`.
+func (r *Registry) Run(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			r.closeAll()
+			return
+
 		case conn := <-r.register:
 			r.mu.Lock()
 			r.connections[conn] = true
 			r.mu.Unlock()
 
 		case conn := <-r.unregister:
-			r.mu.Lock()
-			delete(r.connections, conn)
-			r.mu.Unlock()
+			r.unregisterConnection(conn)
 		}
+	}
+}
+
+// unregisterConnection removes conn from the registry and from every group
+// it had joined. It's called once a connection's pumps have exited for good.
+func (r *Registry) unregisterConnection(conn *Connection) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.connections, conn)
+	for groupName := range conn.groups {
+		if group, exists := r.groups[groupName]; exists {
+			delete(group, conn)
+		}
+	}
+	conn.groups = nil
+}
+
+// closeAll closes and removes every currently registered connection.
+func (r *Registry) closeAll() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for conn := range r.connections {
+		delete(r.connections, conn)
+		conn.CloseConnection()
 	}
 }
 
@@ -64,13 +97,15 @@ func (r *Registry) DeleteGroup(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if group, exists := r.groups[name]; exists {
-		for conn := range group {
-			delete(r.connections, conn)
-			close(conn.Send)
-		}
-		delete(r.groups, name)
+	group, exists := r.groups[name]
+	if !exists {
+		return
 	}
+	for conn := range group {
+		delete(r.connections, conn)
+		conn.CloseConnection()
+	}
+	delete(r.groups, name)
 }
 
 // AddToGroup adds a connection to a specific group.
@@ -78,13 +113,13 @@ func (r *Registry) AddToGroup(groupName string, conn *Connection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if group, exists := r.groups[groupName]; exists {
-		group[conn] = true
-	} else {
-		group := make(map[*Connection]bool)
-		group[conn] = true
+	group, exists := r.groups[groupName]
+	if !exists {
+		group = make(map[*Connection]bool)
 		r.groups[groupName] = group
 	}
+	group[conn] = true
+	conn.groups[groupName] = true
 }
 
 // RemoveFromGroup removes a connection from a specific group.
@@ -93,10 +128,9 @@ func (r *Registry) RemoveFromGroup(groupName string, conn *Connection) {
 	defer r.mu.Unlock()
 
 	if group, exists := r.groups[groupName]; exists {
-		if _, ok := group[conn]; ok {
-			delete(group, conn)
-		}
+		delete(group, conn)
 	}
+	delete(conn.groups, groupName)
 }
 
 // BroadcastToAll sends a message to all connections.
@@ -126,24 +160,21 @@ func (r *Registry) Broadcast(msg message.IMessage, groupName string) {
 		return
 	}
 
-	// Iterate over connections and send the message.
+	// Iterate over connections and send the message. Send is never closed
+	// (see Connection.CloseConnection), so this can never panic - a
+	// connection that's mid-close just has a queue nobody drains, and the
+	// default case below keeps that from blocking the broadcaster.
 	for conn := range targetConnections {
 		select {
 		case conn.Send <- serializedMsg:
 			// Message successfully queued to send.
 		default:
-			log.Printf("Failed to send to connection %s. Channel full or closed.", conn.ID)
+			log.Printf("Failed to send to connection %s. Channel full.", conn.ID)
 		}
 	}
 }
 
-// ClearConnections removes all connections from the registry. For testing use only.
+// ClearConnections closes and removes all active connections. For testing use only.
 func (r *Registry) ClearConnections() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for conn := range r.connections {
-		delete(r.connections, conn)
-		close(conn.Send)
-	}
+	r.closeAll()
 }

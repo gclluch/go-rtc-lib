@@ -16,7 +16,7 @@ func (c *Connection) readPump() {
 	c.setupPongHandler()
 
 	for {
-		_, message, err := c.WS.ReadMessage()
+		_, msg, err := c.WS.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
@@ -26,27 +26,27 @@ func (c *Connection) readPump() {
 			break // Exit the loop on read error.
 		}
 
-		if c.messageHandler != nil {
-			// Process the message using the registered handler.
-			response, handlerErr := c.messageHandler.HandleMessage(c, message)
-			if handlerErr != nil {
-				log.Printf("Handler error: %v", handlerErr)
-				// Optionally, close the connection on handler error.
-				break
-			}
-			if response != nil {
-				// Send response if not blocked.
-				select {
-				case c.Send <- response:
-				default:
-					// Log or handle blocked send channel.
-					log.Println("Send channel blocked. Unable to send handler response.")
-				}
-			}
-		} else {
+		if c.messageHandler == nil {
 			// Fallback or default behavior if no handler is registered.
-			log.Printf("No handler registered. Message received: %s", string(message))
-			// Echo the message back or handle as needed.
+			log.Printf("No handler registered. Message received: %s", string(msg))
+			continue
+		}
+
+		// Process the message using the registered handler.
+		response, handlerErr := c.messageHandler.HandleMessage(c, msg)
+		if handlerErr != nil {
+			log.Printf("Handler error: %v", handlerErr)
+			// Optionally, close the connection on handler error.
+			break
+		}
+		if response != nil {
+			// Send response if not blocked.
+			select {
+			case c.Send <- response:
+			default:
+				// Log or handle blocked send channel.
+				log.Println("Send channel blocked. Unable to send handler response.")
+			}
 		}
 	}
 }
@@ -61,12 +61,13 @@ func (c *Connection) writePump() {
 
 	for {
 		select {
-		case message, ok := <-c.Send:
-			if !ok {
-				// The channel has been closed.
-				c.WS.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
+		case <-c.done:
+			// Connection is closing (peer went away, or a graceful
+			// shutdown); tell the peer and stop pumping.
+			c.WS.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+
+		case message := <-c.Send:
 			c.WS.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.WS.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Printf("Write error: %v", err)

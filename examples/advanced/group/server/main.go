@@ -1,15 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"go-rtc-lib/connection"
-	"go-rtc-lib/message"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+
+	"github.com/gclluch/go-rtc-lib/connection"
+	"github.com/gclluch/go-rtc-lib/message"
 )
 
 // Custom WebSocket message handler that supports join/leave group operations and messaging
-type GroupMessageHandler struct{}
+type GroupMessageHandler struct {
+	registry *connection.Registry
+}
 
 func (h *GroupMessageHandler) HandleMessage(conn *connection.Connection, msg []byte) ([]byte, error) {
 	// Parse the incoming JSON from client.
@@ -27,15 +33,15 @@ func (h *GroupMessageHandler) HandleMessage(conn *connection.Connection, msg []b
 	switch parsedMsg.Action {
 	case "join":
 		// Join the specified group.
-		connection.GetGlobalRegistry().AddToGroup(parsedMsg.Group, conn)
+		h.registry.AddToGroup(parsedMsg.Group, conn)
 		log.Printf("Connection %s joined group %s", conn.ID, parsedMsg.Group)
 	case "leave":
 		// Leave the specified group.
-		connection.GetGlobalRegistry().RemoveFromGroup(parsedMsg.Group, conn)
+		h.registry.RemoveFromGroup(parsedMsg.Group, conn)
 		log.Printf("Connection %s left group %s", conn.ID, parsedMsg.Group)
 	case "message":
 		// Broadcast the message to the group.
-		broadcastMessage(conn, parsedMsg.Group, parsedMsg.Message)
+		h.broadcastMessage(conn, parsedMsg.Group, parsedMsg.Message)
 	default:
 		log.Printf("Unknown action: %s", parsedMsg.Action)
 	}
@@ -44,7 +50,7 @@ func (h *GroupMessageHandler) HandleMessage(conn *connection.Connection, msg []b
 }
 
 // Broadcasts a structured message to all connections in the specified group.
-func broadcastMessage(conn *connection.Connection, groupName, messageContent string) {
+func (h *GroupMessageHandler) broadcastMessage(conn *connection.Connection, groupName, messageContent string) {
 	msgData := map[string]string{
 		"from":    conn.ID,        // Sender ID
 		"message": messageContent, // The message text
@@ -55,16 +61,28 @@ func broadcastMessage(conn *connection.Connection, groupName, messageContent str
 	log.Printf("Broadcasting structured message: %+v", jsonMsg)
 
 	// Broadcast the JSON message to the specified group.
-	globalRegistry := connection.GetGlobalRegistry()
-	globalRegistry.Broadcast(jsonMsg, groupName)
+	h.registry.Broadcast(jsonMsg, groupName)
 }
 
 func main() {
-	handler := &GroupMessageHandler{}
-	http.HandleFunc("/ws", connection.RegisterHandler(handler))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	registry := connection.NewRegistry()
+	go registry.Run(ctx)
+
+	handler := &GroupMessageHandler{registry: registry}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", registry.RegisterHandler(handler))
+
+	srv := &http.Server{Addr: ":8080", Handler: mux}
+	go func() {
+		<-ctx.Done()
+		srv.Shutdown(context.Background())
+	}()
 
 	log.Println("Server started on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

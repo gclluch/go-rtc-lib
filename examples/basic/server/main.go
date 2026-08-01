@@ -1,9 +1,13 @@
 package main
 
 import (
-	"go-rtc-lib/connection"
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+
+	"github.com/gclluch/go-rtc-lib/connection"
 )
 
 // Handler defines a custom handler for WebSocket messages.
@@ -18,13 +22,24 @@ func (h *Handler) HandleMessage(conn *connection.Connection, message []byte) ([]
 }
 
 func main() {
-	handler := &Handler{}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
-	// Use the registration function to create a handler with the custom logic
-	http.HandleFunc("/ws", connection.RegisterHandler(handler))
+	registry := connection.NewRegistry()
+	go registry.Run(ctx)
+
+	handler := &Handler{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", registry.RegisterHandler(handler))
+
+	srv := &http.Server{Addr: ":8080", Handler: mux}
+	go func() {
+		<-ctx.Done()
+		srv.Shutdown(context.Background())
+	}()
 
 	log.Println("WebSocket server starting on :8080...")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal("Server failed to start:", err)
 	}
 }
