@@ -142,3 +142,54 @@ func TestAddToGroupAfterUnregisterDoesNotPanic(t *testing.T) {
 			"nothing will ever unregister it again, so it would leak")
 	}
 }
+
+// TestBroadcastDoesNotHoldLockDuringFanOut pins the lock scope. Serializing and
+// sending under r.mu blocked every registration and group operation for the
+// duration of a broadcast. The probe below acquires r.mu from another goroutine
+// while a deliberately slow Serialize runs; if the broadcaster still held the
+// lock across it, the probe could not complete.
+func TestBroadcastDoesNotHoldLockDuringFanOut(t *testing.T) {
+	r := NewRegistry()
+	conn := NewConnection(nil, nil)
+	r.mu.Lock()
+	r.connections[conn] = true
+	r.mu.Unlock()
+
+	acquired := make(chan struct{})
+	msg := &slowMessage{started: make(chan struct{}), release: make(chan struct{})}
+
+	go func() {
+		<-msg.started // Serialize is in progress
+		r.mu.Lock()
+		r.mu.Unlock()
+		close(acquired)
+		close(msg.release)
+	}()
+
+	go r.Broadcast(msg, "")
+
+	select {
+	case <-acquired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("registry lock was held across Serialize; a slow broadcast " +
+			"stalls every other registry operation")
+	}
+}
+
+// slowMessage blocks inside Serialize until released, so a test can observe
+// whether the registry lock is held while it runs.
+type slowMessage struct {
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+}
+
+func (m *slowMessage) Serialize() ([]byte, error) {
+	m.once.Do(func() { close(m.started) })
+	<-m.release
+	return []byte("payload"), nil
+}
+func (m *slowMessage) Deserialize([]byte) error { return nil }
+func (m *slowMessage) Type() string             { return "slow" }
+
+var _ message.IMessage = (*slowMessage)(nil)

@@ -159,32 +159,43 @@ func (r *Registry) BroadcastToAll(msg message.IMessage) {
 }
 
 // Broadcast sends a message to all connections or to a specific group.
+//
+// Serialization and the fan-out both happen outside the registry lock. Holding
+// it across them serialized every register, unregister, and group operation
+// behind whichever broadcast happened to be running - with N connections and a
+// non-trivial Serialize, that is the whole server's throughput ceiling. The
+// lock now covers only the snapshot of who to send to.
 func (r *Registry) Broadcast(msg message.IMessage, groupName string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	serializedMsg, err := msg.Serialize()
 	if err != nil {
 		log.Printf("Error serializing message: %v", err)
 		return
 	}
 
-	// Identify the correct set of connections based on groupName.
-	var targetConnections map[*Connection]bool
+	r.mu.Lock()
+	var source map[*Connection]bool
 	if groupName == "" {
-		targetConnections = r.connections
+		source = r.connections
 	} else if group, ok := r.groups[groupName]; ok {
-		targetConnections = group
+		source = group
 	} else {
+		r.mu.Unlock()
 		log.Printf("Group %s not found.", groupName)
 		return
 	}
+	// Copy rather than range outside the lock: the maps are mutated by
+	// register/unregister, and ranging one concurrently is a fatal runtime
+	// throw, not a recoverable race.
+	targets := make([]*Connection, 0, len(source))
+	for conn := range source {
+		targets = append(targets, conn)
+	}
+	r.mu.Unlock()
 
-	// Iterate over connections and send the message. Send is never closed
-	// (see Connection.CloseConnection), so this can never panic - a
-	// connection that's mid-close just has a queue nobody drains, and the
-	// default case below keeps that from blocking the broadcaster.
-	for conn := range targetConnections {
+	// Send is never closed (see Connection.CloseConnection), so this can never
+	// panic - a connection that's mid-close just has a queue nobody drains, and
+	// the default case below keeps that from blocking the broadcaster.
+	for _, conn := range targets {
 		select {
 		case conn.Send <- serializedMsg:
 			// Message successfully queued to send.
