@@ -101,8 +101,18 @@ func (r *Registry) RegisterHandler(customHandler MessageHandler) http.HandlerFun
 		// Initialize the connection with the custom handler.
 		client := NewConnection(ws, customHandler)
 
-		r.register <- client
-		defer func() { r.unregister <- client }()
+		select {
+		case r.register <- client:
+		case <-r.stopped:
+			client.CloseConnection()
+			return
+		}
+		defer func() {
+			select {
+			case r.unregister <- client:
+			case <-r.stopped:
+			}
+		}()
 
 		client.wg.Add(2)
 		go client.writePump()

@@ -17,6 +17,11 @@ type Registry struct {
 	unregister  chan *Connection
 	mu          sync.Mutex
 
+	// stopped is closed when Run returns. Handler goroutines select on it so a
+	// connection that outlives Run doesn't park forever sending to unregister.
+	stopped  chan struct{}
+	stopOnce sync.Once
+
 	// CheckOrigin decides whether an incoming upgrade request's Origin is
 	// allowed. It defaults to same-origin-only (see defaultCheckOrigin).
 	// Override it to allow specific additional origins.
@@ -31,6 +36,7 @@ func NewRegistry() *Registry {
 		groups:      make(map[string]map[*Connection]bool),
 		register:    make(chan *Connection),
 		unregister:  make(chan *Connection),
+		stopped:     make(chan struct{}),
 		CheckOrigin: defaultCheckOrigin,
 	}
 }
@@ -43,6 +49,9 @@ func (r *Registry) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			r.closeAll()
+			// Release any handler blocked on the unregister send. The registry
+			// is being torn down, so there is nothing left to unregister from.
+			r.stopOnce.Do(func() { close(r.stopped) })
 			return
 
 		case conn := <-r.register:

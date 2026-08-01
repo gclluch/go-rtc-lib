@@ -8,11 +8,18 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// maxMessageBytes caps a single inbound frame. See readPump.
+const maxMessageBytes = 1 << 20 // 1 MiB
+
 func (c *Connection) readPump() {
 	defer func() {
 		c.wg.Done()
 		c.CloseConnection() // Ensure connection is closed at the end of readPump.
 	}()
+	// Without a read limit a single peer can force an unbounded allocation with
+	// one oversized frame. 1 MiB is generous for control/JSON traffic; raise it
+	// deliberately if an application needs larger payloads.
+	c.WS.SetReadLimit(maxMessageBytes)
 	c.setupPongHandler()
 
 	for {
@@ -63,7 +70,10 @@ func (c *Connection) writePump() {
 		select {
 		case <-c.done:
 			// Connection is closing (peer went away, or a graceful
-			// shutdown); tell the peer and stop pumping.
+			// shutdown); tell the peer and stop pumping. The deadline matters:
+			// without it a wedged peer can block this write forever and strand
+			// the goroutine.
+			c.WS.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			c.WS.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 
