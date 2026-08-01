@@ -62,6 +62,12 @@ func (c *Connection) writePump() {
 	ticker := time.NewTicker(30 * time.Second) // Adjust the interval as needed.
 	defer func() {
 		ticker.Stop()
+		// Signal before CloseConnection, unconditionally: this is what lets
+		// CloseConnection stop waiting, and it has to fire even on the write-error
+		// paths below where no Close frame was ever sent. Closing it here rather
+		// than after the frame keeps the ordering obvious - once writePump is
+		// done, nothing else will ever write to this socket.
+		close(c.writeDone)
 		c.CloseConnection() // Ensure connection is closed at the end of writePump.
 		c.wg.Done()
 	}()

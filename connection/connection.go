@@ -23,9 +23,20 @@ type Connection struct {
 	wg             sync.WaitGroup
 	closeOnce      sync.Once
 	messageHandler MessageHandler
-	done           chan struct{}   // closed exactly once, by CloseConnection
-	groups         map[string]bool // Tracks which groups this connection is part of.
+	done           chan struct{} // closed exactly once, by CloseConnection
+
+	// writeDone is closed by writePump when it stops, whether or not it managed
+	// to put a Close frame on the wire. CloseConnection waits on it briefly so
+	// the frame goes out before the socket does. See CloseConnection.
+	writeDone chan struct{}
+
+	groups map[string]bool // Tracks which groups this connection is part of.
 }
+
+// closeFrameGrace bounds how long CloseConnection waits for the write pump to
+// emit its Close frame. It is a courtesy to the peer, not a correctness
+// requirement, so it stays short enough never to matter to a shutdown.
+const closeFrameGrace = 250 * time.Millisecond
 
 func NewConnection(ws *websocket.Conn, handler MessageHandler) *Connection {
 	return &Connection{
@@ -34,6 +45,7 @@ func NewConnection(ws *websocket.Conn, handler MessageHandler) *Connection {
 		Send:           make(chan []byte, 256),
 		messageHandler: handler,
 		done:           make(chan struct{}),
+		writeDone:      make(chan struct{}),
 		groups:         make(map[string]bool),
 	}
 }
@@ -44,9 +56,22 @@ func NewConnection(ws *websocket.Conn, handler MessageHandler) *Connection {
 // under select/default. The write pump is the only reader of Send, and it
 // learns to stop via done instead - so Send is simply left for GC once the
 // connection is unregistered. Safe to call more than once or concurrently.
+// It closes the socket only after the write pump has had a chance to send a
+// Close frame. Closing both at once raced: whether the peer saw a clean 1000 or
+// an abnormal 1006 depended on which goroutine the scheduler picked, so a
+// deliberate shutdown usually looked like a network fault to the client.
 func (c *Connection) CloseConnection() {
 	c.closeOnce.Do(func() {
 		close(c.done)
+
+		// writePump closes writeDone on its way out, so this returns as soon as
+		// the frame is written - or immediately when called from writePump's own
+		// defer. The timeout covers the case where no write pump ever ran.
+		select {
+		case <-c.writeDone:
+		case <-time.After(closeFrameGrace):
+		}
+
 		if c.WS != nil {
 			c.WS.Close() // Error handling omitted for brevity.
 		}
